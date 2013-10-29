@@ -1,93 +1,274 @@
+/*
+  CmdMessenger - library that provides command based messaging
+
+	Permission is hereby granted, free of charge, to any person obtaining
+	a copy of this software and associated documentation files (the
+	"Software"), to deal in the Software without restriction, including
+	without limitation the rights to use, copy, modify, merge, publish,
+	distribute, sublicense, and/or sell copies of the Software, and to
+	permit persons to whom the Software is furnished to do so, subject to
+	the following conditions:
+
+	The above copyright notice and this permission notice shall be
+	included in all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+	EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+	MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+	NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+	LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+	OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+	WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+ */
+
 #ifndef CmdMessenger_h
 #define CmdMessenger_h
 
 #include <inttypes.h>
-#if defined(ARDUINO) && ARDUINO >= 100
-#include "Arduino.h"
+#if ARDUINO >= 100
+#include <Arduino.h> 
 #else
-#include "WProgram.h"
+#include <WProgram.h> 
 #endif
 
+//#include "Stream.h"
 
-#include "Stream.h"
-
-extern "C" {
-  // Our callbacks are always method signature: void cmd(void);
-  typedef void (*messengerCallbackFunction)(void);
+extern "C"
+{
+  // callback functions always follow the signature: void cmd(void);
+  typedef void (*messengerCallbackFunction) (void);
 }
 
-#define MAXCALLBACKS 50        // The maximum number of unique commands
-#define MESSENGERBUFFERSIZE 64 // The maximum length of the buffer (defaults to 64)
-#define DEFAULT_TIMEOUT 5000   // Abandon incomplete messages if nothing heard after 5 seconds
+#define MAXCALLBACKS        50   // The maximum number of commands   (default: 50)
+#define MESSENGERBUFFERSIZE 64   // The maximum length of the buffer (default: 64)
+#define DEFAULT_TIMEOUT     5000 // Time out on unanswered messages. (default: 5s)
+
+// Message States
+enum
+{  
+  kProccesingMessage,            // Message is being received, not reached command separator
+  kEndOfMessage,				 // Message is fully received, reached command separator
+  kProcessingArguments,			 // Message is received, arguments are being read parsed
+};
 
 class CmdMessenger
-{  
+{
+private:
 
-protected:
-  uint8_t bufferIndex;     // Index where to write the data
-  uint8_t bufferLength;    // Is set to MESSENGERBUFFERSIZE
-  uint8_t bufferLastIndex; // The last index of the buffer
-
-  messengerCallbackFunction default_callback;
-  messengerCallbackFunction callbackList[MAXCALLBACKS];
-
-  // (not implemented, generally not needed)
-  // when we are sending a message and requre answer or acknowledgement
-  // suspend any processing (process()) when serial intterupt is recieved
-  // Even though we usually only have single processing thread we still need
-  // this i think because Serial interrupts.
-  // Could also be usefull when we want data larger than MESSENGERBUFFERSIZE
-  // we could send a startCmd, which could pauseProcessing and read directly
-  // from serial all the data, send acknowledge etc and then resume processing  
-  boolean pauseProcessing;
-    
-  void handleMessage(); 
-  void init(Stream &comms, char field_separator, char command_separator);
-  uint8_t process(int serialByte);
-  void reset();
-
+  // **** Private variables *** 
+  
+  bool    startCommand;            // Indicates if sending of a command is underway
+  uint8_t lastCommandId;		    // ID of last received command 
+  uint8_t bufferIndex;              // Index where to write data in buffer
+  uint8_t bufferLength;             // Is set to MESSENGERBUFFERSIZE
+  uint8_t bufferLastIndex;          // The last index of the buffer
+  char ArglastChar;                 // Bookkeeping of argument escape char 
+  char CmdlastChar;                 // Bookkeeping of command escape char 
+  bool pauseProcessing;             // pauses processing of new commands, during sending
+  bool print_newlines;              // Indicates if \r\n should be added after send command
   char buffer[MESSENGERBUFFERSIZE]; // Buffer that holds the data
-  uint8_t messageState;
-  uint8_t dumped;
-  char* current; // Pointer to current data
-  char* last;
+  uint8_t messageState;             // Current state of message processing
+  bool dumped;                      // Indicates if last argument has been externally read 
+  bool ArgOk;						// Indicated if last fetched argument could be read
+  char *current;                    // Pointer to current buffer position
+  char *last;                       // Pointer to previous buffer position
+  char prevChar;                    // Previous char (needed for unescaping)
+  Stream *comms;                    // Serial data stream
+  
+  char command_separator;           // Character indicating end of command (default: ';')
+  char field_separator;				// Character indicating end of argument (default: ',')
+  char escape_character;		    // Character indicating escaping of special chars
+    
+  messengerCallbackFunction default_callback;            // default callback function  
+  messengerCallbackFunction callbackList[MAXCALLBACKS];  // list of attached callback functions 
+  
+  // ****** Private functions ******   
+  
+  // **** Initialize ****
+  
+  void init (Stream & comms, const char fld_separator, const char cmd_separator, const char esc_character);
+  void reset ();
+  
+  // **** Command processing ****
+  
+  uint8_t processAndCallBack (int serialByte);
+  uint8_t processLine (int serialByte);
+  void handleMessage ();
 
+  bool blockedTillReply (int timeout = DEFAULT_TIMEOUT, int ackCmdId = 1);
+  bool CheckForAck (int AckCommand);
+  bool processAndWaitForAck (int serialByte, int AckCommand);
+
+  // **** Command sending ****
+   
+  /**
+   * Print variable of type T binary in binary format
+   */
+  template < class T > 
+    void writeBin (const T & value)
+  {
+	const byte *bytePointer = (const byte *) (const void *) &value;
+    for (unsigned int i = 0; i < sizeof (value); i++)
+      {
+        printEsc (*bytePointer); 
+        *bytePointer++;
+      }
+  }
+    
+  // **** Command receiving ****
+  
+  int findNext (char *str, char delim);
+
+  /**
+   * Read a variable of any type in binary format
+   */
+  template < class T > 
+    T readBin (char *str)
+  {
+    T value;
+    unescape (str);
+    byte *bytePointer = (byte *) (const void *) &value;
+    for (unsigned int i = 0; i < sizeof (value); i++)
+      {
+        *bytePointer = str[i];
+        *bytePointer++;
+      }
+    return value;
+  }
+  
+  // **** Escaping tools ****
+  
+  char *split_r (char *str, const char delim, char **nextp);
+  bool isEscaped (char *currChar, const char escapeChar, char *lastChar);
+  
+  void printEsc (char *str);
+  void printEsc (char str); 
+  
 public:
-  CmdMessenger(Stream &comms);
-  CmdMessenger(Stream &comms, char fld_separator);
-  CmdMessenger(Stream &comms, char fld_separator, char cmd_separator);
 
-  void attach(messengerCallbackFunction newFunction);
-  void discard_LF_CR();
-  void print_LF_CR();
+  // ****** Public functions ******
 
-  uint8_t next();
-  uint8_t available();
-
-  int readInt();
-  char readChar();
-  void copyString(char *string, uint8_t size);
-  uint8_t checkString(char *string);
-
-  // Polymorphism used to interact with serial class
-  // Stream is an abstract base class which defines a base set
-  // of functionality used by the serial classes.
-  Stream *comms;
+  // **** Initialization ****
   
-  void attach(byte msgId, messengerCallbackFunction newFunction);
+  CmdMessenger (Stream & comms, const char fld_separator = ',', 
+				const char cmd_separator = ';', 
+                const char esc_character = '/');
   
-  char* sendCmd(int cmdId, char *msg, boolean reqAc = false, 
-		    char *replyBuff = NULL, int butSize = 0, int timeout = DEFAULT_TIMEOUT, 
-		    int retryCount = 10);
-
-  void feedinSerialData();
+  void printLfCr (bool addNewLine=true);
+  void attach (messengerCallbackFunction newFunction);
+  void attach (byte msgId, messengerCallbackFunction newFunction);
   
-  char command_separator;
-  char field_separator;
+  // **** Command processing ****
+  
+  void feedinSerialData ();
+  bool next ();
+  bool available ();
+  
+  uint8_t CommandID ();
+  
+  // ****  Command sending ****
+  
+  /**
+   * Send a command with a single argument of any type 
+   * Note that the argument is sent as string
+   */
+  template < class T >
+    bool sendCmd (int cmdId, T arg, bool reqAc = false, int ackCmdId = 1, 
+				  int timeout = DEFAULT_TIMEOUT)
+  {
+    if (!startCommand) {
+		sendCmdStart (cmdId);
+		sendCmdArg (arg);
+		return sendCmdEnd (reqAc, ackCmdId, timeout);
+	}
+  }
+  
+  /**
+   * Send a command with a single argument of any type 
+   * Note that the argument is sent in binary format
+   */
+  template < class T >
+    bool sendBinCmd (int cmdId, T arg, bool reqAc = false, int ackCmdId = 1,
+                     int timeout = DEFAULT_TIMEOUT)
+  {
+    if (!startCommand) {
+		sendCmdStart (cmdId);
+		sendCmdBinArg (arg);
+		return sendCmdEnd (reqAc, ackCmdId, timeout);
+	}
+  }
 
-  boolean discard_newlines;
-  boolean print_newlines;
+  // **** Command sending with multiple arguments ****
+  
+  void sendCmdStart (int cmdId);
+  void sendCmdEscArg (char *arg);
+  void sendCmdfArg (char *fmt, ...);
+  bool sendCmdEnd (bool reqAc = false, int ackCmdId = 1, int timeout = DEFAULT_TIMEOUT);
+  
+  /**
+   * Send a single argument as string 
+   *  Note that this will only succeed if a sendCmdStart has been issued first
+   */
+  template < class T > void sendCmdArg (T arg)
+  {
+    if (startCommand)
+      {
+        comms->print (field_separator);
+        comms->print (arg);
+      }
+  }
+  
+  /**
+   * Send a single argument as string with custom accuracy
+   *  Note that this will only succeed if a sendCmdStart has been issued first
+   */
+  template < class T > void sendCmdArg (T arg, int n)
+  {
+    if (startCommand)
+      {
+        comms->print (field_separator);
+        comms->print (arg, n);
+      }
+  }
+  
+  /**
+   * Send a single argument in binary format
+   *  Note that this will only succeed if a sendCmdStart has been issued first
+   */  
+  template < class T > void sendCmdBinArg (T arg)
+  {
+    if (startCommand)
+      {
+        comms->print (field_separator);
+        writeBin (arg);
+      }
+  }  
 
-  boolean blockedTillReply(int timeout = DEFAULT_TIMEOUT);
+  // **** Command receiving ****
+  bool readBoolArg();
+  int readIntArg ();
+  char readCharArg ();
+  float readFloatArg ();
+  char *readStringArg ();
+  void copyStringArg (char *string, uint8_t size);
+  uint8_t compareStringArg (char *string);
+ 
+  /**
+   * Read an argument of any type in binary format
+   */  
+  template < class T > T readBinArg ()
+  {
+    if (next ())
+      {
+        dumped = true;
+        return readBin < T > (current);
+      }
+  }
+
+  // **** Escaping tools ****
+  
+  void unescape (char *fromChar);	
 };
 #endif
