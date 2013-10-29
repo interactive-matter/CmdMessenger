@@ -249,6 +249,7 @@ public:
   // **** Command receiving ****
   bool readBoolArg();
   int readIntArg ();
+  long readLongArg ();
   char readCharArg ();
   float readFloatArg ();
   char *readStringArg ();

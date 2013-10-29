@@ -365,6 +365,20 @@ int CmdMessenger::readIntArg()
 }
 
 /**
+ * Read the next argument as int
+ */
+long CmdMessenger::readLongArg()
+{
+    if (next()) {
+        dumped = true;
+        ArgOk  = true;
+        return atol(current);
+    }
+    ArgOk  = false;
+    return 0;
+}
+
+/**
  * Read the next argument as bool
  */
 bool CmdMessenger::readBoolArg()
