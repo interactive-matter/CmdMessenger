@@ -42,7 +42,7 @@ extern "C"
 }
 
 #define MAXCALLBACKS        50   // The maximum number of commands   (default: 50)
-#define MESSENGERBUFFERSIZE 64   // The maximum length of the buffer (default: 64)
+#define MESSENGERBUFFERSIZE 512   // The maximum length of the buffer (default: 64)
 #define DEFAULT_TIMEOUT     5000 // Time out on unanswered messages. (default: 5s)
 
 // Message States
@@ -61,9 +61,9 @@ private:
   
   bool    startCommand;            // Indicates if sending of a command is underway
   uint8_t lastCommandId;		    // ID of last received command 
-  uint8_t bufferIndex;              // Index where to write data in buffer
-  uint8_t bufferLength;             // Is set to MESSENGERBUFFERSIZE
-  uint8_t bufferLastIndex;          // The last index of the buffer
+  uint16_t bufferIndex;              // Index where to write data in buffer
+  uint16_t bufferLength;             // Is set to MESSENGERBUFFERSIZE
+  uint16_t bufferLastIndex;          // The last index of the buffer
   char ArglastChar;                 // Bookkeeping of argument escape char 
   char CmdlastChar;                 // Bookkeeping of command escape char 
   bool pauseProcessing;             // pauses processing of new commands, during sending
