@@ -57,6 +57,7 @@ class CmdMessenger
 {
 private:
 
+
   // **** Private variables *** 
   
   bool    startCommand;            // Indicates if sending of a command is underway
@@ -165,7 +166,8 @@ public:
   void feedinSerialData ();
   bool next ();
   bool available ();
-  
+  uint16_t bufferSize();
+
   uint8_t CommandID ();
   
   // ****  Command sending ****

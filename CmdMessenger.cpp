@@ -67,6 +67,7 @@ void CmdMessenger::init(Stream &ccomms, const char fld_separator, const char cmd
     bufferLastIndex   = MESSENGERBUFFERSIZE -1;
     reset();
 
+
     default_callback  = NULL;
     for (int i = 0; i < MAXCALLBACKS; i++)
         callbackList[i] = NULL;
@@ -257,11 +258,19 @@ bool CmdMessenger::available()
 }
 
 /**
- * Returns the CommandID of the current command
+ * Returns the maximum buffersizze of the current command
  */
 uint8_t CmdMessenger::CommandID()
 {
     return lastCommandId;
+}
+
+/**
+ * Returns the CommandID of the current command
+ */
+uint16_t CmdMessenger::bufferSize()
+{
+    return MESSENGERBUFFERSIZE;
 }
 
 // ****  Command sending ****
